@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSpaces } from '../context/SpaceContext';
 import { useAuth } from '../context/AuthContext';
 import { PresenceService } from '../services/PresenceService';
+import Avatar from './Avatar';
 
 const PRESENCE_POLL_MS = 15000;
 const ONLINE_THRESHOLD_SECONDS = 90;
@@ -26,10 +27,7 @@ function MemberRow({ member, online }) {
   const name = member.display_name || member.displayName || member.email || 'Ukendt bruger';
   return (
     <View style={styles.memberRow}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{name[0]?.toUpperCase() ?? '?'}</Text>
-        {online ? <View style={styles.onlineDot} /> : null}
-      </View>
+      <Avatar name={name} avatarUrl={member.avatar_url} size={36} online={online} />
       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
       <RoleBadge role={member.role} />
     </View>
@@ -235,31 +233,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#1e1e2e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarText: {
-    color: '#a78bfa',
-    fontWeight: '700',
-    fontSize: 15,
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#4ade80',
-    borderWidth: 2,
-    borderColor: '#12121a',
+    gap: 12,
   },
   memberName: {
     flex: 1,

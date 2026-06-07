@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,6 +7,8 @@ import HomeView from '../views/HomeView';
 import CanvasView from '../views/CanvasView';
 import SpacesView from '../views/SpacesView';
 import NotesView from '../views/NotesView';
+import ProfileModal from '../views/ProfileModal';
+import Avatar from '../views/Avatar';
 import { useAuth } from '../context/AuthContext';
 
 const Tab = createBottomTabNavigator();
@@ -25,7 +28,10 @@ function PlusTabButton({ onPress }) {
 }
 
 export default function AppNavigator() {
-  const { logout } = useAuth();
+  const { user, profile, logout } = useAuth();
+  const [showProfile, setShowProfile] = useState(false);
+
+  const displayName = profile?.display_name || user?.email || '';
 
   return (
     <NavigationContainer>
@@ -34,9 +40,14 @@ export default function AppNavigator() {
           headerStyle: { backgroundColor: '#0a0a0f', borderBottomColor: '#1e1e2e' },
           headerTintColor: '#fff',
           headerRight: () => (
-            <TouchableOpacity onPress={logout} style={{ marginRight: 16 }}>
-              <Text style={{ color: '#555', fontSize: 14 }}>Log ud</Text>
-            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity onPress={() => setShowProfile(true)}>
+                <Avatar name={displayName} avatarUrl={profile?.avatar_url} size={30} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={logout}>
+                <Text style={{ color: '#555', fontSize: 14 }}>Log ud</Text>
+              </TouchableOpacity>
+            </View>
           ),
           tabBarStyle: {
             backgroundColor: '#0a0a0f',
@@ -97,11 +108,18 @@ export default function AppNavigator() {
           }}
         />
       </Tab.Navigator>
+      <ProfileModal visible={showProfile} onClose={() => setShowProfile(false)} />
     </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginRight: 16,
+  },
   plusWrapper: {
     flex: 1,
     alignItems: 'center',

@@ -10,6 +10,7 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null); // { display_name, avatar_url, ... } from our backend
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthStateChanged((firebaseUser) => {
@@ -18,6 +19,25 @@ export function AuthProvider({ children }) {
     });
     return unsubscribe;
   }, []);
+
+  const refreshProfile = useCallback(async () => {
+    if (!user) {
+      setProfile(null);
+      return null;
+    }
+    try {
+      const token = await user.getIdToken();
+      const me = await UserService.getMe(token);
+      setProfile(me);
+      return me;
+    } catch {
+      return null;
+    }
+  }, [user]);
+
+  useEffect(() => {
+    refreshProfile();
+  }, [refreshProfile]);
 
   // Tell the backend "I'm online" while logged in — drives presence indicators.
   useEffect(() => {
@@ -63,7 +83,10 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, getToken, register, login, logout }}>
+    <AuthContext.Provider value={{
+      user, loading, getToken, register, login, logout,
+      profile, refreshProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );

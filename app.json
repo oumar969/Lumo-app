@@ -24,6 +24,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Lumo skal bruge adgang til dine billeder for at du kan vælge et profilbillede."
+        }
+      ]
+    ]
   }
 }
