@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { AuthService } from '../services/AuthService';
 import { UserService } from '../services/UserService';
+import { PresenceService } from '../services/PresenceService';
 
 const AuthContext = createContext(null);
+
+const HEARTBEAT_INTERVAL_MS = 30000;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -15,6 +18,24 @@ export function AuthProvider({ children }) {
     });
     return unsubscribe;
   }, []);
+
+  // Tell the backend "I'm online" while logged in — drives presence indicators.
+  useEffect(() => {
+    if (!user) return;
+
+    async function beat() {
+      try {
+        const token = await user.getIdToken();
+        await PresenceService.heartbeat(token);
+      } catch {
+        // best-effort — a missed beat just means we look offline a bit longer
+      }
+    }
+
+    beat();
+    const intervalId = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [user]);
 
   // Always returns a fresh token — Firebase auto-refreshes before expiry
   const getToken = useCallback(async () => {

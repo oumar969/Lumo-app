@@ -1,9 +1,15 @@
+import { useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity,
   StyleSheet, FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSpaces } from '../context/SpaceContext';
+import { useAuth } from '../context/AuthContext';
+import { PresenceService } from '../services/PresenceService';
+
+const PRESENCE_POLL_MS = 15000;
+const ONLINE_THRESHOLD_SECONDS = 90;
 
 function RoleBadge({ role }) {
   const isOwner = role === 'owner';
@@ -16,12 +22,13 @@ function RoleBadge({ role }) {
   );
 }
 
-function MemberRow({ member }) {
+function MemberRow({ member, online }) {
   const name = member.display_name || member.displayName || member.email || 'Ukendt bruger';
   return (
     <View style={styles.memberRow}>
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>{name[0]?.toUpperCase() ?? '?'}</Text>
+        {online ? <View style={styles.onlineDot} /> : null}
       </View>
       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
       <RoleBadge role={member.role} />
@@ -32,10 +39,47 @@ function MemberRow({ member }) {
 export default function SpaceDetailModal({ space, visible, onClose }) {
   const navigation = useNavigation();
   const { setActiveSpace } = useSpaces();
+  const { getToken } = useAuth();
+  const [presence, setPresence] = useState({}); // user_id -> last_seen (unix seconds)
+
+  // Poll who's online for this space while the sheet is open.
+  useEffect(() => {
+    if (!visible || !space) {
+      setPresence({});
+      return;
+    }
+
+    let cancelled = false;
+    async function loadPresence() {
+      try {
+        const token = await getToken();
+        const rows = await PresenceService.getSpacePresence(space.id, token);
+        if (cancelled) return;
+        const map = {};
+        for (const row of rows) map[row.user_id] = row.last_seen;
+        setPresence(map);
+      } catch {
+        // best-effort — keep showing the last known state
+      }
+    }
+
+    loadPresence();
+    const intervalId = setInterval(loadPresence, PRESENCE_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [visible, space?.id, getToken]);
 
   if (!space) return null;
 
   const members = space.members || [];
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const isOnline = (member) => {
+    const lastSeen = presence[member.user_id];
+    return !!lastSeen && nowSeconds - lastSeen < ONLINE_THRESHOLD_SECONDS;
+  };
+  const onlineCount = members.filter(isOnline).length;
 
   function handleOpenCanvas() {
     setActiveSpace(space);
@@ -82,15 +126,15 @@ export default function SpaceDetailModal({ space, visible, onClose }) {
           {/* Members */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>
-              Medlemmer ({members.length})
+              Medlemmer ({members.length}){onlineCount > 0 ? ` · ${onlineCount} online` : ''}
             </Text>
             {members.length === 0 ? (
               <Text style={styles.emptyMembers}>Ingen medlemmer endnu</Text>
             ) : (
               <FlatList
                 data={members}
-                keyExtractor={(m, i) => m.uid || m.id || m._id || String(i)}
-                renderItem={({ item }) => <MemberRow member={item} />}
+                keyExtractor={(m, i) => m.user_id || m.uid || m.id || m._id || String(i)}
+                renderItem={({ item }) => <MemberRow member={item} online={isOnline(item)} />}
                 scrollEnabled={false}
                 ItemSeparatorComponent={() => <View style={styles.separator} />}
               />
@@ -205,6 +249,17 @@ const styles = StyleSheet.create({
     color: '#a78bfa',
     fontWeight: '700',
     fontSize: 15,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#4ade80',
+    borderWidth: 2,
+    borderColor: '#12121a',
   },
   memberName: {
     flex: 1,
