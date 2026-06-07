@@ -9,7 +9,7 @@ const POLL_INTERVAL_MS = 5000;
 
 export default function CanvasView() {
   const { activeSpace }   = useSpaces();
-  const { getToken }      = useAuth();
+  const { user, getToken } = useAuth();
   const canvasRef         = useRef(null);
 
   const [serverPaths,  setServerPaths]  = useState([]);
@@ -116,6 +116,7 @@ export default function CanvasView() {
         ref={canvasRef}
         spaceName={activeSpace.name}
         serverPaths={serverPaths}
+        userId={user?.uid}
         saving={saving}
         syncing={syncing}
         onSave={handleSave}

@@ -1,5 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 import { TouchableOpacity, Text, View, StyleSheet } from 'react-native';
 import HomeView from '../views/HomeView';
 import CanvasView from '../views/CanvasView';
@@ -17,7 +18,7 @@ function PlusTabButton({ onPress }) {
       style={styles.plusWrapper}
     >
       <View style={styles.plusButton}>
-        <Text style={styles.plusText}>+</Text>
+        <Ionicons name="add" size={28} color="#fff" />
       </View>
     </TouchableOpacity>
   );
@@ -45,8 +46,24 @@ export default function AppNavigator() {
           tabBarInactiveTintColor: '#444',
         }}
       >
-        <Tab.Screen name="Hjem" component={HomeView} />
-        <Tab.Screen name="Canvas" component={CanvasView} />
+        <Tab.Screen
+          name="Hjem"
+          component={HomeView}
+          options={{
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Canvas"
+          component={CanvasView}
+          options={{
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'brush' : 'brush-outline'} size={size} color={color} />
+            ),
+          }}
+        />
         <Tab.Screen
           name="Opret"
           component={HomeView}
@@ -61,8 +78,24 @@ export default function AppNavigator() {
             },
           })}
         />
-        <Tab.Screen name="Noter" component={NotesView} />
-        <Tab.Screen name="Spaces" component={SpacesView} />
+        <Tab.Screen
+          name="Noter"
+          component={NotesView}
+          options={{
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'document-text' : 'document-text-outline'} size={size} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Spaces"
+          component={SpacesView}
+          options={{
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
+            ),
+          }}
+        />
       </Tab.Navigator>
     </NavigationContainer>
   );
@@ -87,11 +120,5 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
-  },
-  plusText: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '300',
-    lineHeight: 32,
   },
 });

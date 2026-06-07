@@ -22,12 +22,24 @@ function pointsToD(pts) {
     .join(' ');
 }
 
+function lastIndexWhere(arr, pred) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (pred(arr[i])) return i;
+  }
+  return -1;
+}
+
 // serverPaths  — paths loaded from + synced with the backend (read-only here)
-// onSave(allPaths) — called with [...serverPaths, ...localPaths] on Gem press
+// userId       — current user's id, stamped onto strokes you draw so your own
+//                strokes can be undone/cleared even after they've been saved
+// onSave(allPaths) — called with [...serverPaths, ...localPaths] on Gem press,
+//                    and also when undo/clear needs to remove an already-saved
+//                    stroke of yours (the removal must be persisted, otherwise
+//                    the next poll would just bring it back)
 // clearLocalPaths() — exposed via ref so CanvasView can reset after a
 //                     successful save without duplicating strokes on next poll
 const DrawingCanvas = forwardRef(function DrawingCanvas(
-  { spaceName, serverPaths = [], onSave, saving, syncing },
+  { spaceName, serverPaths = [], userId, onSave, saving, syncing },
   ref
 ) {
   const localRef   = useRef([]); // completed local strokes
@@ -37,6 +49,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
   const [activeColor, setActiveColor] = useState('#ffffff');
   const [canvasSize,  setCanvasSize]  = useState({ width: 0, height: 0 });
   const [tick,        setTick]        = useState(0);
+  const [busy,        setBusy]        = useState(false);
 
   const bump = () => setTick((t) => t + 1);
 
@@ -73,7 +86,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       onPanResponderRelease: () => {
         const pts = currentRef.current;
         if (pts.length > 1) {
-          localRef.current.push({ d: pointsToD(pts), color: colorRef.current });
+          localRef.current.push({ d: pointsToD(pts), color: colorRef.current, authorId: userId });
         }
         currentRef.current = [];
         bump();
@@ -86,16 +99,57 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
     setActiveColor(hex);
   }
 
-  function handleUndo() {
-    localRef.current = localRef.current.slice(0, -1);
-    bump();
+  // Undo the most recent stroke YOU drew — whether it's still local (cheap,
+  // no network) or already saved to the server (requires persisting the
+  // removal immediately, otherwise the next poll brings it right back).
+  async function handleUndo() {
+    if (busy || saving) return;
+
+    if (localRef.current.length > 0) {
+      localRef.current = localRef.current.slice(0, -1);
+      bump();
+      return;
+    }
+
+    if (!userId) return;
+    const idx = lastIndexWhere(serverPaths, (p) => p.authorId === userId);
+    if (idx === -1) return; // nothing of yours to undo (e.g. older strokes saved before attribution existed)
+
+    const updated = serverPaths.filter((_, i) => i !== idx);
+    setBusy(true);
+    try {
+      await onSave(updated);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleClear() {
-    // Clears only YOUR unsaved local strokes — server strokes remain.
+  // Clears every stroke YOU drew — both unsaved local ones and ones already
+  // saved to the server (the latter requires persisting the removal so the
+  // next poll doesn't restore them). Other people's strokes are untouched.
+  async function handleClear() {
+    if (busy || saving) return;
+
     localRef.current   = [];
     currentRef.current = [];
-    bump();
+
+    if (!userId) {
+      bump();
+      return;
+    }
+
+    const remaining = serverPaths.filter((p) => p.authorId !== userId);
+    if (remaining.length === serverPaths.length) {
+      bump();
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await onSave(remaining);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleSave() {
@@ -172,14 +226,25 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
           ))}
         </View>
         <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionBtn} onPress={handleUndo}>
-            <Text style={styles.actionBtnText}>↩ Fortryd</Text>
+          <TouchableOpacity
+            style={[styles.actionBtn, (busy || saving) && styles.actionBtnDisabled]}
+            onPress={handleUndo}
+            disabled={busy || saving}
+          >
+            {busy
+              ? <ActivityIndicator color="#aaa" size="small" />
+              : <Text style={styles.actionBtnText}>↩ Fortryd</Text>
+            }
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.actionBtn, styles.actionBtnDanger]}
+            style={[styles.actionBtn, styles.actionBtnDanger, (busy || saving) && styles.actionBtnDisabled]}
             onPress={handleClear}
+            disabled={busy || saving}
           >
-            <Text style={styles.actionBtnText}>Ryd egne</Text>
+            {busy
+              ? <ActivityIndicator color="#aaa" size="small" />
+              : <Text style={styles.actionBtnText}>Ryd egne</Text>
+            }
           </TouchableOpacity>
         </View>
       </View>
@@ -271,6 +336,9 @@ const styles = StyleSheet.create({
   },
   actionBtnDanger: {
     backgroundColor: '#2a1a1a',
+  },
+  actionBtnDisabled: {
+    opacity: 0.5,
   },
   actionBtnText: {
     color: '#aaa',
