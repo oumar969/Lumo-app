@@ -39,7 +39,7 @@ function lastIndexWhere(arr, pred) {
 // clearLocalPaths() — exposed via ref so CanvasView can reset after a
 //                     successful save without duplicating strokes on next poll
 const DrawingCanvas = forwardRef(function DrawingCanvas(
-  { spaceName, serverPaths = [], userId, onSave, saving, syncing },
+  { spaceName, serverPaths = [], userId, onSave, saving },
   ref
 ) {
   const localRef   = useRef([]); // completed local strokes
@@ -167,9 +167,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas(
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle} numberOfLines={1}>{spaceName}</Text>
-          {syncing && (
-            <Text style={styles.syncLabel}>Synkroniserer...</Text>
-          )}
         </View>
         <TouchableOpacity
           style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
@@ -276,11 +273,6 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
-  },
-  syncLabel: {
-    color: '#555',
-    fontSize: 11,
-    marginTop: 2,
   },
   saveBtn: {
     backgroundColor: '#a78bfa',

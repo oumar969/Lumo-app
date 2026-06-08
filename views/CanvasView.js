@@ -3,9 +3,8 @@ import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSpaces } from '../context/SpaceContext';
 import { useAuth } from '../context/AuthContext';
 import { CanvasService } from '../services/CanvasService';
+import { LiveCanvasService } from '../services/LiveCanvasService';
 import DrawingCanvas from './DrawingCanvas';
-
-const POLL_INTERVAL_MS = 5000;
 
 export default function CanvasView() {
   const { activeSpace }   = useSpaces();
@@ -15,20 +14,19 @@ export default function CanvasView() {
   const [serverPaths,  setServerPaths]  = useState([]);
   const [canvasId,     setCanvasId]     = useState(null);
   const [loadingCanvas, setLoadingCanvas] = useState(false);
-  const [syncing,      setSyncing]      = useState(false);
   const [saving,       setSaving]       = useState(false);
   const [toast,        setToast]        = useState(null); // { msg, error }
 
-  // Load canvas + start polling whenever the active space changes.
+  // Load the canvas once, then subscribe to Firebase Realtime Database for
+  // instant pushes whenever anyone else saves — no more 5s polling.
   useEffect(() => {
     if (!activeSpace) return;
 
     let cancelled = false;
     setCanvasId(null);
 
-    async function fetchPaths(isInitial) {
-      if (isInitial) setLoadingCanvas(true);
-      else setSyncing(true);
+    async function fetchInitial() {
+      setLoadingCanvas(true);
       try {
         const token = await getToken();
         const { paths, canvasId: cid } = await CanvasService.getCanvas(activeSpace.id, token);
@@ -39,23 +37,25 @@ export default function CanvasView() {
       } catch {
         // silent — don't wipe the canvas on a transient network error
       } finally {
-        if (!cancelled) {
-          setLoadingCanvas(false);
-          setSyncing(false);
-        }
+        if (!cancelled) setLoadingCanvas(false);
       }
     }
 
-    fetchPaths(true);
-    const intervalId = setInterval(() => fetchPaths(false), POLL_INTERVAL_MS);
+    fetchInitial();
+
+    const unsubscribe = LiveCanvasService.subscribe(activeSpace.id, ({ paths, updatedBy }) => {
+      if (cancelled) return;
+      if (updatedBy === user?.uid) return; // our own save — already applied optimistically
+      setServerPaths(paths);
+    });
 
     return () => {
       cancelled = true;
-      clearInterval(intervalId);
+      unsubscribe();
       setServerPaths([]);
       setCanvasId(null);
     };
-  }, [activeSpace?.id, getToken]);
+  }, [activeSpace?.id, getToken, user?.uid]);
 
   async function handleSave(allPaths) {
     if (!canvasId) {
@@ -67,10 +67,14 @@ export default function CanvasView() {
     try {
       const token = await getToken();
       await CanvasService.saveCanvas(canvasId, allPaths, token);
-      // Optimistic update — no need to wait for the next poll
+      // Optimistic update for us, instant push for everyone else
       setServerPaths(allPaths);
-      // Clear local strokes so they aren't doubled when serverPaths updates
       canvasRef.current?.clearLocalPaths();
+      try {
+        await LiveCanvasService.pushSnapshot(activeSpace.id, allPaths, user?.uid);
+      } catch {
+        // best-effort — the canvas is already saved; live broadcast is a bonus
+      }
       showToast({ msg: 'Canvas gemt ✓', error: false });
     } catch {
       showToast({ msg: 'Kunne ikke gemme. Prøv igen.', error: true });
@@ -118,7 +122,6 @@ export default function CanvasView() {
         serverPaths={serverPaths}
         userId={user?.uid}
         saving={saving}
-        syncing={syncing}
         onSave={handleSave}
       />
     </View>
