@@ -7,23 +7,40 @@ import { LiveCanvasService } from '../services/LiveCanvasService';
 import DrawingCanvas from './DrawingCanvas';
 
 export default function CanvasView() {
-  const { activeSpace }   = useSpaces();
-  const { user, getToken } = useAuth();
-  const canvasRef         = useRef(null);
+  const { activeSpace }    = useSpaces();
+  const { user, profile, getToken } = useAuth();
 
   const [serverPaths,  setServerPaths]  = useState([]);
   const [canvasId,     setCanvasId]     = useState(null);
   const [loadingCanvas, setLoadingCanvas] = useState(false);
-  const [saving,       setSaving]       = useState(false);
+  const [cursors,      setCursors]      = useState({}); // { [uid]: { x, y, name } }
   const [toast,        setToast]        = useState(null); // { msg, error }
 
+  // Every change (Turso write + live broadcast) is queued through this chain
+  // so rapid strokes persist in order instead of racing and overwriting
+  // each other's snapshot.
+  const persistChainRef = useRef(Promise.resolve());
+
+  // A random per-mount id — NOT the account's uid. Two devices signed into
+  // the same account are still two separate live-sync participants, so we
+  // can't use uid alone to tell "my own broadcast" apart from "someone
+  // else's": that would make each device deafen itself to the other.
+  // (Cursor RTDB paths still have to be keyed by uid — the security rules
+  // tie write access to auth.uid — so this id rides along *inside* the
+  // cursor payload instead, purely for self-filtering.)
+  const sessionIdRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+
+  const displayName = profile?.display_name || user?.email || 'Bruger';
+
   // Load the canvas once, then subscribe to Firebase Realtime Database for
-  // instant pushes whenever anyone else saves — no more 5s polling.
+  // instant pushes whenever anyone draws — no more polling.
   useEffect(() => {
-    if (!activeSpace) return;
+    if (!activeSpace || !user) return;
 
     let cancelled = false;
     setCanvasId(null);
+    setCursors({});
+    persistChainRef.current = Promise.resolve();
 
     async function fetchInitial() {
       setLoadingCanvas(true);
@@ -43,44 +60,56 @@ export default function CanvasView() {
 
     fetchInitial();
 
-    const unsubscribe = LiveCanvasService.subscribe(activeSpace.id, ({ paths, updatedBy }) => {
+    const sessionId = sessionIdRef.current;
+
+    const unsubscribeSnapshot = LiveCanvasService.subscribeSnapshot(activeSpace.id, ({ paths, updatedBy }) => {
       if (cancelled) return;
-      if (updatedBy === user?.uid) return; // our own save — already applied optimistically
+      if (updatedBy === sessionId) return; // our own change — already applied optimistically
       setServerPaths(paths);
+    });
+
+    LiveCanvasService.prepareCursor(activeSpace.id, user.uid);
+    const unsubscribeCursors = LiveCanvasService.subscribeCursors(activeSpace.id, sessionId, (others) => {
+      if (!cancelled) setCursors(others);
     });
 
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribeSnapshot();
+      unsubscribeCursors();
+      LiveCanvasService.clearCursor(activeSpace.id, user.uid);
       setServerPaths([]);
       setCanvasId(null);
+      setCursors({});
     };
-  }, [activeSpace?.id, getToken, user?.uid]);
+  }, [activeSpace?.id, user?.uid, getToken]);
 
-  async function handleSave(allPaths) {
-    if (!canvasId) {
-      showToast({ msg: 'Canvas ikke klar endnu — prøv igen', error: true });
-      return;
-    }
-    setSaving(true);
-    showToast(null);
+  // Called whenever the local drawing changes (new stroke, undo, clear).
+  // Applies it instantly for us, then queues durable save + live broadcast.
+  function handlePathsChange(newPaths) {
+    setServerPaths(newPaths);
+
+    const run = persistChainRef.current.then(() => persist(newPaths));
+    persistChainRef.current = run.catch(() => {});
+    return run;
+  }
+
+  async function persist(paths) {
+    // Broadcast first — it's just a fast pub/sub push, no reason to wait on Turso
+    LiveCanvasService.pushSnapshot(activeSpace.id, paths, sessionIdRef.current).catch(() => {});
+
+    if (!canvasId) return;
     try {
       const token = await getToken();
-      await CanvasService.saveCanvas(canvasId, allPaths, token);
-      // Optimistic update for us, instant push for everyone else
-      setServerPaths(allPaths);
-      canvasRef.current?.clearLocalPaths();
-      try {
-        await LiveCanvasService.pushSnapshot(activeSpace.id, allPaths, user?.uid);
-      } catch {
-        // best-effort — the canvas is already saved; live broadcast is a bonus
-      }
-      showToast({ msg: 'Canvas gemt ✓', error: false });
+      await CanvasService.saveCanvas(canvasId, paths, token);
     } catch {
-      showToast({ msg: 'Kunne ikke gemme. Prøv igen.', error: true });
-    } finally {
-      setSaving(false);
+      showToast({ msg: 'Kunne ikke gemme tegningen. Prøv igen.', error: true });
     }
+  }
+
+  function handleCursorMove(x, y) {
+    if (!activeSpace || !user) return;
+    LiveCanvasService.pushCursor(activeSpace.id, user.uid, sessionIdRef.current, displayName, x, y).catch(() => {});
   }
 
   function showToast(t) {
@@ -117,12 +146,12 @@ export default function CanvasView() {
         </View>
       )}
       <DrawingCanvas
-        ref={canvasRef}
         spaceName={activeSpace.name}
         serverPaths={serverPaths}
         userId={user?.uid}
-        saving={saving}
-        onSave={handleSave}
+        cursors={cursors}
+        onPathsChange={handlePathsChange}
+        onCursorMove={handleCursorMove}
       />
     </View>
   );
