@@ -1,26 +1,35 @@
 {
   "expo": {
-    "name": "lumo3",
+    "name": "Lumo",
     "slug": "lumo3",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0a0a0f"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.oumar969.lumo",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0a0a0f"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.anonymous.lumo3"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -31,7 +40,31 @@
         {
           "photosPermission": "Lumo skal bruge adgang til dine billeder for at du kan vælge et profilbillede."
         }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "CanvasWidget",
+              "label": "Lumo Canvas",
+              "description": "Vis det seneste canvas fra dit aktive Lumo space",
+              "previewImage": "./assets/icon.png",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 2,
+              "updatePeriodMillis": 1800000
+            }
+          ]
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "26481134-8ab3-4bdd-99d0-fff60ddb51a6"
+      }
+    },
+    "owner": "omaramm"
   }
 }

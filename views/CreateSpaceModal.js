@@ -1,27 +1,65 @@
 import { useState } from 'react';
 import {
-  Modal, View, Text, TextInput, TouchableOpacity,
+  Modal, View, Text, TextInput, TouchableOpacity, Image,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+
+async function pickAndCompressCover() {
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') return null;
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [16, 9],
+    quality: 0.8,
+  });
+
+  if (result.canceled || !result.assets?.[0]) return null;
+
+  const compressed = await ImageManipulator.manipulateAsync(
+    result.assets[0].uri,
+    [{ resize: { width: 800 } }],
+    { compress: 0.75, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+  );
+
+  return `data:image/jpeg;base64,${compressed.base64}`;
+}
 
 export default function CreateSpaceModal({ visible, onClose, onCreate, onNavigate, loading, error }) {
   const [name, setName] = useState('');
+  const [coverImage, setCoverImage] = useState(null);
+  const [pickingImage, setPickingImage] = useState(false);
   const [createdSpace, setCreatedSpace] = useState(null);
+
+  async function handlePickImage() {
+    setPickingImage(true);
+    try {
+      const img = await pickAndCompressCover();
+      if (img) setCoverImage(img);
+    } finally {
+      setPickingImage(false);
+    }
+  }
 
   async function handleCreate() {
     if (!name.trim() || loading) return;
-    const space = await onCreate(name.trim());
+    const space = await onCreate(name.trim(), coverImage);
     if (space) setCreatedSpace(space);
   }
 
   function handleClose() {
     setName('');
+    setCoverImage(null);
     setCreatedSpace(null);
     onClose();
   }
 
   function handleGoToSpaces() {
     setName('');
+    setCoverImage(null);
     setCreatedSpace(null);
     onNavigate();
   }
@@ -72,6 +110,39 @@ export default function CreateSpaceModal({ visible, onClose, onCreate, onNavigat
               returnKeyType="done"
               onSubmitEditing={handleCreate}
             />
+
+            {/* Cover image picker */}
+            <TouchableOpacity
+              style={styles.coverPicker}
+              onPress={handlePickImage}
+              disabled={pickingImage}
+              activeOpacity={0.75}
+            >
+              {coverImage ? (
+                <>
+                  <Image source={{ uri: coverImage }} style={styles.coverPreview} />
+                  <View style={styles.coverOverlay}>
+                    <Text style={styles.coverOverlayText}>Skift billede</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  {pickingImage
+                    ? <ActivityIndicator color="#a78bfa" />
+                    : <Text style={styles.coverPickerIcon}>🖼</Text>}
+                  <Text style={styles.coverPickerLabel}>
+                    {pickingImage ? 'Henter billede...' : 'Tilføj forsidebillede (valgfrit)'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {coverImage ? (
+              <TouchableOpacity onPress={() => setCoverImage(null)} style={styles.removeImageBtn}>
+                <Text style={styles.removeImageText}>Fjern billede ✕</Text>
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               style={[styles.btn, styles.btnPrimary, (!name.trim() || loading) && styles.btnDisabled]}
               onPress={handleCreate}
@@ -169,7 +240,51 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: '#fff',
-    marginBottom: 16,
+    marginBottom: 14,
+  },
+  coverPicker: {
+    height: 96,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a2a3e',
+    borderStyle: 'dashed',
+    backgroundColor: '#0a0a0f',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  coverPreview: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 12,
+  },
+  coverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverOverlayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  coverPickerIcon: {
+    fontSize: 22,
+  },
+  coverPickerLabel: {
+    color: '#555',
+    fontSize: 13,
+  },
+  removeImageBtn: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  removeImageText: {
+    color: '#f87171',
+    fontSize: 13,
   },
   btn: {
     paddingVertical: 14,
@@ -179,6 +294,7 @@ const styles = StyleSheet.create({
   },
   btnPrimary: {
     backgroundColor: '#a78bfa',
+    marginTop: 4,
   },
   btnDisabled: {
     opacity: 0.4,

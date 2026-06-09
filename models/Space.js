@@ -4,6 +4,7 @@ export class Space {
     this.name = data.name;
     this.invite_code = data.invite_code || data.code || '';
     this.canvas_id = data.canvas_id || data.canvasId || null;
+    this.cover_image = data.cover_image || null;
     this.createdAt = data.createdAt ? new Date(data.createdAt) : new Date();
     this.members = data.members || [];
   }

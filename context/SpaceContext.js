@@ -26,12 +26,12 @@ export function SpaceProvider({ children }) {
     }
   }, [getToken]);
 
-  const createSpace = useCallback(async (name) => {
+  const createSpace = useCallback(async (name, coverImage = null) => {
     setLoading(true);
     setError(null);
     try {
       const token = await getToken();
-      const data = await SpaceService.createSpace(name, token);
+      const data = await SpaceService.createSpace(name, token, coverImage);
       const space = new Space(data);
       setSpaces((prev) => [space, ...prev]);
       return space;

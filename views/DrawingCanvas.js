@@ -1,21 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   View, PanResponder, StyleSheet,
-  TouchableOpacity, Text, ActivityIndicator,
+  TouchableOpacity, Text, ActivityIndicator, ScrollView,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-const STROKE_WIDTH = 3;
-const MIN_DIST_SQ  = 9; // skip points < 3 px apart to reduce render thrash
-const CURSOR_THROTTLE_MS = 80; // cap how often we broadcast our pointer position
+const MIN_DIST_SQ  = 4;
+const CURSOR_THROTTLE_MS = 80;
 
 const COLORS = [
   { key: 'white',  hex: '#ffffff' },
   { key: 'purple', hex: '#a78bfa' },
   { key: 'pink',   hex: '#f472b6' },
-  { key: 'yellow', hex: '#fbbf24' },
   { key: 'cyan',   hex: '#22d3ee' },
+  { key: 'green',  hex: '#4ade80' },
+  { key: 'yellow', hex: '#fbbf24' },
+  { key: 'orange', hex: '#fb923c' },
+  { key: 'red',    hex: '#f87171' },
+  { key: 'blue',   hex: '#60a5fa' },
+  { key: 'gray',   hex: '#94a3b8' },
 ];
+
+const SIZES = [
+  { key: 'thin',   width: 2,  dot: 6  },
+  { key: 'medium', width: 5,  dot: 10 },
+  { key: 'thick',  width: 14, dot: 18 },
+];
+
+const ERASER_COLOR = '#0a0a0f';
+const ERASER_WIDTH = 28;
 
 const CURSOR_COLORS = ['#f472b6', '#22d3ee', '#fbbf24', '#34d399', '#60a5fa', '#c084fc'];
 
@@ -38,34 +51,28 @@ function lastIndexWhere(arr, pred) {
   return -1;
 }
 
-// serverPaths — every stroke anyone has drawn (read-only here; the canonical
-//               list lives in CanvasView and is pushed back down as it changes)
-// userId      — current user's id, stamped onto strokes you draw so your own
-//               strokes can be undone/cleared
-// cursors     — { [uid]: { x, y, name } } live pointer positions of others
-// onPathsChange(newPaths) — called the instant a stroke finishes, or when
-//               undo/clear needs to remove one of your strokes. CanvasView
-//               applies it optimistically and persists + broadcasts it.
-// onCursorMove(x, y)      — called (throttled) while you move your pointer
-//               over the canvas, so others can see where you're drawing
 export default function DrawingCanvas({
   spaceName, serverPaths = [], userId, cursors = {}, onPathsChange, onCursorMove,
 }) {
-  const currentRef     = useRef([]); // in-progress stroke points
-  const colorRef       = useRef('#ffffff');
-  const serverPathsRef = useRef(serverPaths);
-  const lastCursorRef  = useRef(0);
+  const currentRef      = useRef([]);
+  const colorRef        = useRef('#ffffff');
+  const strokeWidthRef  = useRef(5);
+  const isEraserRef     = useRef(false);
+  const serverPathsRef  = useRef(serverPaths);
+  const lastCursorRef   = useRef(0);
 
   const onPathsChangeRef = useRef(onPathsChange);
   const onCursorMoveRef  = useRef(onCursorMove);
   useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
-  useEffect(() => { onCursorMoveRef.current = onCursorMove; }, [onCursorMove]);
-  useEffect(() => { serverPathsRef.current = serverPaths; }, [serverPaths]);
+  useEffect(() => { onCursorMoveRef.current  = onCursorMove;  }, [onCursorMove]);
+  useEffect(() => { serverPathsRef.current   = serverPaths;   }, [serverPaths]);
 
-  const [activeColor, setActiveColor] = useState('#ffffff');
-  const [canvasSize,  setCanvasSize]  = useState({ width: 0, height: 0 });
-  const [tick,        setTick]        = useState(0);
-  const [busy,        setBusy]        = useState(false);
+  const [activeColor,  setActiveColor]  = useState('#ffffff');
+  const [activeSize,   setActiveSize]   = useState('medium');
+  const [isEraser,     setIsEraser]     = useState(false);
+  const [canvasSize,   setCanvasSize]   = useState({ width: 0, height: 0 });
+  const [tick,         setTick]         = useState(0);
+  const [busy,         setBusy]         = useState(false);
 
   const bump = () => setTick((t) => t + 1);
 
@@ -106,9 +113,14 @@ export default function DrawingCanvas({
         const pts = currentRef.current;
         currentRef.current = [];
         if (pts.length > 1) {
-          const stroke = { d: pointsToD(pts), color: colorRef.current, authorId: userId };
-          // Update the ref synchronously so back-to-back strokes stack
-          // correctly instead of racing on a stale serverPaths snapshot.
+          const color = isEraserRef.current ? ERASER_COLOR : colorRef.current;
+          const width = isEraserRef.current ? ERASER_WIDTH : strokeWidthRef.current;
+          const stroke = {
+            d: pointsToD(pts),
+            color,
+            width,
+            authorId: userId,
+          };
           const updated = [...serverPathsRef.current, stroke];
           serverPathsRef.current = updated;
           onPathsChangeRef.current?.(updated);
@@ -119,16 +131,28 @@ export default function DrawingCanvas({
   ).current;
 
   function handleColorSelect(hex) {
-    colorRef.current = hex;
+    colorRef.current    = hex;
+    isEraserRef.current = false;
     setActiveColor(hex);
+    setIsEraser(false);
   }
 
-  // Undo the most recent stroke YOU drew — every stroke is already persisted,
-  // so this removes it from the canonical list and saves the result.
+  function handleSizeSelect(sizeKey) {
+    const s = SIZES.find((s) => s.key === sizeKey);
+    strokeWidthRef.current = s.width;
+    setActiveSize(sizeKey);
+  }
+
+  function handleEraserToggle() {
+    const next = !isEraserRef.current;
+    isEraserRef.current = next;
+    setIsEraser(next);
+  }
+
   async function handleUndo() {
     if (busy || !userId) return;
     const idx = lastIndexWhere(serverPaths, (p) => p.authorId === userId);
-    if (idx === -1) return; // nothing of yours to undo
+    if (idx === -1) return;
 
     const updated = serverPaths.filter((_, i) => i !== idx);
     serverPathsRef.current = updated;
@@ -140,7 +164,6 @@ export default function DrawingCanvas({
     }
   }
 
-  // Clears every stroke YOU drew. Other people's strokes are untouched.
   async function handleClear() {
     if (busy || !userId) return;
     const remaining = serverPaths.filter((p) => p.authorId !== userId);
@@ -155,20 +178,18 @@ export default function DrawingCanvas({
     }
   }
 
-  const currentD = currentRef.current.length > 1
-    ? pointsToD(currentRef.current)
-    : null;
+  const currentD = currentRef.current.length > 1 ? pointsToD(currentRef.current) : null;
+  const currentStrokeWidth = isEraser ? ERASER_WIDTH : (SIZES.find((s) => s.key === activeSize)?.width ?? 5);
+  const currentStrokeColor = isEraser ? ERASER_COLOR : activeColor;
 
   return (
     <View style={styles.container}>
-      {/* ── Header ── */}
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{spaceName}</Text>
-        </View>
+        <Text style={styles.headerTitle} numberOfLines={1}>{spaceName}</Text>
       </View>
 
-      {/* ── Drawing surface ── */}
+      {/* Drawing surface */}
       <View
         style={styles.canvas}
         {...pr.panHandlers}
@@ -177,19 +198,29 @@ export default function DrawingCanvas({
         }
       >
         <Svg width={canvasSize.width} height={canvasSize.height}>
-          {/* Everyone's saved strokes */}
-          {serverPaths.map(({ d, color }, i) => (
-            <Path key={`s${i}`} d={d} stroke={color} strokeWidth={STROKE_WIDTH}
-              fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          {serverPaths.map(({ d, color, width }, i) => (
+            <Path
+              key={`s${i}`}
+              d={d}
+              stroke={color}
+              strokeWidth={width ?? 3}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           ))}
-          {/* Current in-progress stroke */}
           {currentD && (
-            <Path d={currentD} stroke={activeColor} strokeWidth={STROKE_WIDTH}
-              fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            <Path
+              d={currentD}
+              stroke={currentStrokeColor}
+              strokeWidth={currentStrokeWidth}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           )}
         </Svg>
 
-        {/* Other people's live cursors */}
         {Object.entries(cursors).map(([uid, c]) => {
           const hex = colorForUid(uid);
           return (
@@ -205,9 +236,15 @@ export default function DrawingCanvas({
         })}
       </View>
 
-      {/* ── Toolbar ── */}
+      {/* Toolbar */}
       <View style={styles.toolbar}>
-        <View style={styles.colorRow}>
+
+        {/* Color swatches */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.colorRow}
+        >
           {COLORS.map(({ key, hex }) => (
             <TouchableOpacity
               key={key}
@@ -215,11 +252,41 @@ export default function DrawingCanvas({
               style={[
                 styles.swatch,
                 { backgroundColor: hex },
-                activeColor === hex && styles.swatchActive,
+                !isEraser && activeColor === hex && styles.swatchActive,
               ]}
             />
           ))}
+        </ScrollView>
+
+        {/* Size + eraser row */}
+        <View style={styles.toolRow}>
+          <View style={styles.sizeRow}>
+            {SIZES.map(({ key, dot }) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => handleSizeSelect(key)}
+                style={[styles.sizeBtn, !isEraser && activeSize === key && styles.sizeBtnActive]}
+              >
+                <View style={[
+                  styles.sizeDot,
+                  { width: dot, height: dot, borderRadius: dot / 2 },
+                  !isEraser && activeSize === key
+                    ? { backgroundColor: activeColor }
+                    : { backgroundColor: '#666' },
+                ]} />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            onPress={handleEraserToggle}
+            style={[styles.eraserBtn, isEraser && styles.eraserBtnActive]}
+          >
+            <Text style={[styles.eraserText, isEraser && styles.eraserTextActive]}>⌫ Viskelæder</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Actions */}
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.actionBtn, busy && styles.actionBtnDisabled]}
@@ -242,6 +309,7 @@ export default function DrawingCanvas({
             }
           </TouchableOpacity>
         </View>
+
       </View>
     </View>
   );
@@ -253,17 +321,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0f',
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#1e1e2e',
-  },
-  headerLeft: {
-    flex: 1,
-    marginRight: 12,
   },
   headerTitle: {
     color: '#fff',
@@ -301,25 +362,72 @@ const styles = StyleSheet.create({
   toolbar: {
     borderTopWidth: 1,
     borderTopColor: '#1e1e2e',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
+    gap: 10,
   },
   colorRow: {
     flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'center',
+    gap: 9,
+    paddingHorizontal: 2,
   },
   swatch: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   swatchActive: {
     borderColor: '#fff',
     transform: [{ scale: 1.2 }],
+  },
+  toolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sizeRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  sizeBtn: {
+    width: 40,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#1a1a2a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  sizeBtnActive: {
+    borderColor: '#a78bfa',
+    backgroundColor: 'rgba(167,139,250,0.12)',
+  },
+  sizeDot: {
+    backgroundColor: '#666',
+  },
+  eraserBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#1a1a2a',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  eraserBtnActive: {
+    borderColor: '#f87171',
+    backgroundColor: 'rgba(248,113,113,0.1)',
+  },
+  eraserText: {
+    color: '#666',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  eraserTextActive: {
+    color: '#f87171',
   },
   actionRow: {
     flexDirection: 'row',

@@ -17,14 +17,16 @@ export const SpaceService = {
     return res.json();
   },
 
-  async createSpace(name, token) {
+  async createSpace(name, token, coverImage = null) {
+    const body = { name };
+    if (coverImage) body.cover_image = coverImage;
     const res = await fetch(`${BASE_URL}/spaces`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error('Kunne ikke oprette space');
     return res.json();

@@ -4,6 +4,7 @@ import { useSpaces } from '../context/SpaceContext';
 import { useAuth } from '../context/AuthContext';
 import { CanvasService } from '../services/CanvasService';
 import { LiveCanvasService } from '../services/LiveCanvasService';
+import { WidgetService } from '../services/WidgetService';
 import DrawingCanvas from './DrawingCanvas';
 
 export default function CanvasView() {
@@ -102,6 +103,7 @@ export default function CanvasView() {
     try {
       const token = await getToken();
       await CanvasService.saveCanvas(canvasId, paths, token);
+      WidgetService.saveAndUpdate(activeSpace.name, paths.length).catch(() => {});
     } catch {
       showToast({ msg: 'Kunne ikke gemme tegningen. Prøv igen.', error: true });
     }

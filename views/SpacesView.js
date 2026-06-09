@@ -1,31 +1,65 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet,
-  ActivityIndicator, TouchableOpacity,
+  ActivityIndicator, TouchableOpacity, ImageBackground,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSpaces } from '../context/SpaceContext';
 import SpaceDetailModal from './SpaceDetailModal';
 
 function SpaceCard({ space, onPress }) {
   const members = space.members || [];
-  return (
-    <TouchableOpacity style={styles.card} onPress={() => onPress(space)} activeOpacity={0.75}>
+  const hasCover = !!space.cover_image;
+
+  const inner = (
+    <>
+      {hasCover && (
+        <LinearGradient
+          colors={['transparent', 'rgba(10,10,15,0.85)', '#0a0a0f']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          pointerEvents="none"
+        />
+      )}
       <View style={styles.cardHeader}>
-        <Text style={styles.cardName} numberOfLines={1}>{space.name}</Text>
-        <View style={styles.memberBadge}>
+        <Text style={[styles.cardName, hasCover && styles.cardNameOnCover]} numberOfLines={1}>
+          {space.name}
+        </Text>
+        <View style={[styles.memberBadge, hasCover && styles.memberBadgeOnCover]}>
           <Text style={styles.memberCount}>
             {members.length} {members.length === 1 ? 'medlem' : 'medlemmer'}
           </Text>
         </View>
       </View>
       {space.invite_code ? (
-        <View style={styles.codeRow}>
+        <View style={[styles.codeRow, hasCover && styles.codeRowOnCover]}>
           <Text style={styles.codeLabel}>Invitationskode</Text>
           <Text style={styles.codeValue}>{space.invite_code}</Text>
         </View>
       ) : null}
-      <Text style={styles.tapHint}>Tryk for detaljer →</Text>
+      <Text style={[styles.tapHint, hasCover && styles.tapHintOnCover]}>Tryk for detaljer →</Text>
+    </>
+  );
+
+  if (hasCover) {
+    return (
+      <TouchableOpacity activeOpacity={0.75} onPress={() => onPress(space)}>
+        <ImageBackground
+          source={{ uri: space.cover_image }}
+          style={[styles.card, styles.cardWithCover]}
+          imageStyle={styles.coverImage}
+        >
+          {inner}
+        </ImageBackground>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <TouchableOpacity style={styles.card} onPress={() => onPress(space)} activeOpacity={0.75}>
+      {inner}
     </TouchableOpacity>
   );
 }
@@ -117,6 +151,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1e1e2e',
   },
+  cardWithCover: {
+    minHeight: 140,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  coverImage: {
+    borderRadius: 16,
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -130,11 +172,19 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
+  cardNameOnCover: {
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
   memberBadge: {
     backgroundColor: 'rgba(167,139,250,0.15)',
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 4,
+  },
+  memberBadgeOnCover: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   memberCount: {
     color: '#a78bfa',
@@ -151,6 +201,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 10,
   },
+  codeRowOnCover: {
+    backgroundColor: 'rgba(10,10,15,0.7)',
+  },
   codeLabel: {
     fontSize: 13,
     color: '#555',
@@ -165,6 +218,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#333',
     textAlign: 'right',
+  },
+  tapHintOnCover: {
+    color: 'rgba(255,255,255,0.35)',
   },
   emptyTitle: {
     fontSize: 20,

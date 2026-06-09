@@ -16,8 +16,8 @@ export default function HomeView({ navigation, route }) {
     }
   }, [route?.params?.openCreate]);
 
-  async function handleCreate(name) {
-    return createSpace(name);
+  async function handleCreate(name, coverImage) {
+    return createSpace(name, coverImage);
   }
 
   function handleNavigateToSpaces() {
