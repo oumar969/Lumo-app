@@ -1,5 +1,4 @@
-// Giphy's public beta key — free for development/testing, no account needed.
-const GIPHY_API_KEY = 'dc6zaTOxFJmzC';
+const GIPHY_API_KEY = process.env.EXPO_PUBLIC_GIPHY_API_KEY;
 const BASE_URL = 'https://api.giphy.com/v1/gifs/search';
 
 export const GifService = {
@@ -8,6 +7,10 @@ export const GifService = {
   // to place on the canvas (kept as a remote URL — never downloaded as base64
   // — so synced canvas snapshots stay tiny).
   async search(query, limit = 12) {
+    if (!GIPHY_API_KEY) {
+      throw new Error('Giphy API-nøgle mangler. Tilføj EXPO_PUBLIC_GIPHY_API_KEY i .env');
+    }
+
     const params = new URLSearchParams({
       api_key: GIPHY_API_KEY,
       q: query,
