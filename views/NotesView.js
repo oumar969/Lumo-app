@@ -227,7 +227,7 @@ export default function NotesView() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0f' },
-  list: { padding: 16, paddingBottom: 96 },
+  list: { padding: 16, paddingBottom: 100 },
   empty: {
     flex: 1, backgroundColor: '#0a0a0f',
     alignItems: 'center', justifyContent: 'center', padding: 32,
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   cardTime: { fontSize: 12, color: '#444' },
 
   fab: {
-    position: 'absolute', bottom: 24, right: 24,
+    position: 'absolute', bottom: 110, right: 24,
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: '#f472b6',
     alignItems: 'center', justifyContent: 'center',

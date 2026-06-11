@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 100,
   },
   card: {
     backgroundColor: '#12121a',

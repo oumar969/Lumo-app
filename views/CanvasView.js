@@ -171,6 +171,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a0a0f',
+    paddingBottom: 100,
   },
   empty: {
     flex: 1,
@@ -178,6 +179,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
+    paddingBottom: 100,
   },
   emptyGlyph: {
     fontSize: 48,
