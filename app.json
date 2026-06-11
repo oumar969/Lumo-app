@@ -38,7 +38,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Lumo skal bruge adgang til dine billeder for at du kan vælge et profilbillede."
+          "photosPermission": "Lumo skal bruge adgang til dine billeder for at du kan vælge et profilbillede eller tilføje et billede til canvas."
         }
       ],
       [

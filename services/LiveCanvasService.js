@@ -14,33 +14,42 @@ function cursorsRef(spaceId) {
 }
 
 export const LiveCanvasService = {
-  // Broadcasts the current drawing to everyone else viewing this space.
-  // senderId is a per-session id (NOT the account uid) — two devices on the
-  // same account must still see each other's strokes, so "is this my own
-  // broadcast" can't be decided from the account id alone.
-  async pushSnapshot(spaceId, paths, senderId) {
+  // Broadcasts the current canvas (strokes + stickers) to everyone else
+  // viewing this space. senderId is a per-session id (NOT the account uid) —
+  // two devices on the same account must still see each other's changes, so
+  // "is this my own broadcast" can't be decided from the account id alone.
+  async pushSnapshot(spaceId, { paths, stickers }, senderId) {
     await set(snapshotRef(spaceId), {
-      snapshot: JSON.stringify(paths),
+      snapshot: JSON.stringify({ paths, stickers }),
       updatedBy: senderId,
       updatedAt: Date.now(),
     });
   },
 
   // Subscribes to live snapshot updates for a space. Fires immediately with
-  // the current value, then again every time someone draws. Returns an
-  // unsubscribe function.
+  // the current value, then again every time someone draws or places a
+  // sticker. Returns an unsubscribe function.
   subscribeSnapshot(spaceId, callback) {
     return onValue(snapshotRef(spaceId), (snapshot) => {
       const value = snapshot.val();
       if (!value?.snapshot) return;
-      let paths;
+      let parsed;
       try {
-        paths = JSON.parse(value.snapshot);
+        parsed = JSON.parse(value.snapshot);
       } catch {
         return;
       }
-      if (!Array.isArray(paths)) return;
-      callback({ paths, updatedBy: value.updatedBy });
+      let paths, stickers;
+      if (Array.isArray(parsed)) {
+        paths = parsed;
+        stickers = [];
+      } else if (parsed && typeof parsed === 'object') {
+        paths = Array.isArray(parsed.paths) ? parsed.paths : [];
+        stickers = Array.isArray(parsed.stickers) ? parsed.stickers : [];
+      } else {
+        return;
+      }
+      callback({ paths, stickers, updatedBy: value.updatedBy });
     });
   },
 

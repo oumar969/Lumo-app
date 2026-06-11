@@ -11,7 +11,8 @@ export default function CanvasView() {
   const { activeSpace }    = useSpaces();
   const { user, profile, getToken } = useAuth();
 
-  const [serverPaths,  setServerPaths]  = useState([]);
+  const [serverPaths,    setServerPaths]    = useState([]);
+  const [serverStickers, setServerStickers] = useState([]);
   const [canvasId,     setCanvasId]     = useState(null);
   const [loadingCanvas, setLoadingCanvas] = useState(false);
   const [cursors,      setCursors]      = useState({}); // { [uid]: { x, y, name } }
@@ -47,9 +48,10 @@ export default function CanvasView() {
       setLoadingCanvas(true);
       try {
         const token = await getToken();
-        const { paths, canvasId: cid } = await CanvasService.getCanvas(activeSpace.id, token);
+        const { paths, stickers, canvasId: cid } = await CanvasService.getCanvas(activeSpace.id, token);
         if (!cancelled) {
           setServerPaths(paths);
+          setServerStickers(stickers);
           if (cid) setCanvasId(cid);
         }
       } catch {
@@ -63,10 +65,11 @@ export default function CanvasView() {
 
     const sessionId = sessionIdRef.current;
 
-    const unsubscribeSnapshot = LiveCanvasService.subscribeSnapshot(activeSpace.id, ({ paths, updatedBy }) => {
+    const unsubscribeSnapshot = LiveCanvasService.subscribeSnapshot(activeSpace.id, ({ paths, stickers, updatedBy }) => {
       if (cancelled) return;
       if (updatedBy === sessionId) return; // our own change — already applied optimistically
       setServerPaths(paths);
+      setServerStickers(stickers);
     });
 
     LiveCanvasService.prepareCursor(activeSpace.id, user.uid);
@@ -80,30 +83,34 @@ export default function CanvasView() {
       unsubscribeCursors();
       LiveCanvasService.clearCursor(activeSpace.id, user.uid);
       setServerPaths([]);
+      setServerStickers([]);
       setCanvasId(null);
       setCursors({});
     };
   }, [activeSpace?.id, user?.uid, getToken]);
 
-  // Called whenever the local drawing changes (new stroke, undo, clear).
-  // Applies it instantly for us, then queues durable save + live broadcast.
-  function handlePathsChange(newPaths) {
+  // Called whenever the local canvas changes (new stroke, undo, clear, or a
+  // sticker/image/GIF is placed, moved or removed). Applies it instantly for
+  // us, then queues durable save + live broadcast.
+  function handleCanvasChange(newPaths, newStickers) {
     setServerPaths(newPaths);
+    setServerStickers(newStickers);
 
-    const run = persistChainRef.current.then(() => persist(newPaths));
+    const data = { paths: newPaths, stickers: newStickers };
+    const run = persistChainRef.current.then(() => persist(data));
     persistChainRef.current = run.catch(() => {});
     return run;
   }
 
-  async function persist(paths) {
+  async function persist(data) {
     // Broadcast first — it's just a fast pub/sub push, no reason to wait on Turso
-    LiveCanvasService.pushSnapshot(activeSpace.id, paths, sessionIdRef.current).catch(() => {});
+    LiveCanvasService.pushSnapshot(activeSpace.id, data, sessionIdRef.current).catch(() => {});
 
     if (!canvasId) return;
     try {
       const token = await getToken();
-      await CanvasService.saveCanvas(canvasId, paths, token);
-      WidgetService.saveAndUpdate(activeSpace.name, paths.length).catch(() => {});
+      await CanvasService.saveCanvas(canvasId, data, token);
+      WidgetService.saveAndUpdate(activeSpace.name, data.paths.length).catch(() => {});
     } catch {
       showToast({ msg: 'Kunne ikke gemme tegningen. Prøv igen.', error: true });
     }
@@ -150,9 +157,10 @@ export default function CanvasView() {
       <DrawingCanvas
         spaceName={activeSpace.name}
         serverPaths={serverPaths}
+        serverStickers={serverStickers}
         userId={user?.uid}
         cursors={cursors}
-        onPathsChange={handlePathsChange}
+        onCanvasChange={handleCanvasChange}
         onCursorMove={handleCursorMove}
       />
     </View>

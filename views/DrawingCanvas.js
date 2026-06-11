@@ -4,6 +4,8 @@ import {
   TouchableOpacity, Text, ActivityIndicator, ScrollView,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import CanvasSticker from './CanvasSticker';
+import StickerSheet from './StickerSheet';
 
 const MIN_DIST_SQ  = 4;
 const CURSOR_THROTTLE_MS = 80;
@@ -51,21 +53,27 @@ function lastIndexWhere(arr, pred) {
   return -1;
 }
 
-export default function DrawingCanvas({
-  spaceName, serverPaths = [], userId, cursors = {}, onPathsChange, onCursorMove,
-}) {
-  const currentRef      = useRef([]);
-  const colorRef        = useRef('#ffffff');
-  const strokeWidthRef  = useRef(5);
-  const isEraserRef     = useRef(false);
-  const serverPathsRef  = useRef(serverPaths);
-  const lastCursorRef   = useRef(0);
+function newStickerId() {
+  return `stk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
-  const onPathsChangeRef = useRef(onPathsChange);
-  const onCursorMoveRef  = useRef(onCursorMove);
-  useEffect(() => { onPathsChangeRef.current = onPathsChange; }, [onPathsChange]);
-  useEffect(() => { onCursorMoveRef.current  = onCursorMove;  }, [onCursorMove]);
-  useEffect(() => { serverPathsRef.current   = serverPaths;   }, [serverPaths]);
+export default function DrawingCanvas({
+  spaceName, serverPaths = [], serverStickers = [], userId, cursors = {}, onCanvasChange, onCursorMove,
+}) {
+  const currentRef       = useRef([]);
+  const colorRef         = useRef('#ffffff');
+  const strokeWidthRef   = useRef(5);
+  const isEraserRef      = useRef(false);
+  const serverPathsRef   = useRef(serverPaths);
+  const serverStickersRef = useRef(serverStickers);
+  const lastCursorRef    = useRef(0);
+
+  const onCanvasChangeRef = useRef(onCanvasChange);
+  const onCursorMoveRef   = useRef(onCursorMove);
+  useEffect(() => { onCanvasChangeRef.current = onCanvasChange; }, [onCanvasChange]);
+  useEffect(() => { onCursorMoveRef.current   = onCursorMove;   }, [onCursorMove]);
+  useEffect(() => { serverPathsRef.current    = serverPaths;    }, [serverPaths]);
+  useEffect(() => { serverStickersRef.current = serverStickers; }, [serverStickers]);
 
   const [activeColor,  setActiveColor]  = useState('#ffffff');
   const [activeSize,   setActiveSize]   = useState('medium');
@@ -73,8 +81,17 @@ export default function DrawingCanvas({
   const [canvasSize,   setCanvasSize]   = useState({ width: 0, height: 0 });
   const [tick,         setTick]         = useState(0);
   const [busy,         setBusy]         = useState(false);
+  const [stickerSheetVisible, setStickerSheetVisible] = useState(false);
+  const [selectedStickerId,   setSelectedStickerId]   = useState(null);
 
   const bump = () => setTick((t) => t + 1);
+
+  // Drop the selection if the sticker was removed (e.g. by another user).
+  useEffect(() => {
+    if (selectedStickerId && !serverStickers.some((s) => s.id === selectedStickerId)) {
+      setSelectedStickerId(null);
+    }
+  }, [serverStickers, selectedStickerId]);
 
   function broadcastCursor(x, y) {
     const now = Date.now();
@@ -89,6 +106,7 @@ export default function DrawingCanvas({
       onMoveShouldSetPanResponder:  () => true,
 
       onPanResponderGrant: ({ nativeEvent: { locationX: x, locationY: y } }) => {
+        setSelectedStickerId(null);
         currentRef.current = [{ x, y }];
         broadcastCursor(x, y);
         bump();
@@ -123,7 +141,7 @@ export default function DrawingCanvas({
           };
           const updated = [...serverPathsRef.current, stroke];
           serverPathsRef.current = updated;
-          onPathsChangeRef.current?.(updated);
+          onCanvasChangeRef.current?.(updated, serverStickersRef.current);
         }
         bump();
       },
@@ -158,7 +176,7 @@ export default function DrawingCanvas({
     serverPathsRef.current = updated;
     setBusy(true);
     try {
-      await onPathsChangeRef.current?.(updated);
+      await onCanvasChangeRef.current?.(updated, serverStickersRef.current);
     } finally {
       setBusy(false);
     }
@@ -172,10 +190,67 @@ export default function DrawingCanvas({
     serverPathsRef.current = remaining;
     setBusy(true);
     try {
-      await onPathsChangeRef.current?.(remaining);
+      await onCanvasChangeRef.current?.(remaining, serverStickersRef.current);
     } finally {
       setBusy(false);
     }
+  }
+
+  function addSticker(sticker) {
+    const updated = [...serverStickersRef.current, sticker];
+    serverStickersRef.current = updated;
+    setSelectedStickerId(sticker.id);
+    onCanvasChangeRef.current?.(serverPathsRef.current, updated);
+  }
+
+  function handleAddEmoji(emoji) {
+    addSticker({
+      id: newStickerId(),
+      type: 'emoji',
+      emoji,
+      x: canvasSize.width / 2 || 100,
+      y: canvasSize.height / 2 || 100,
+      authorId: userId,
+    });
+  }
+
+  function handleAddImage({ uri, width, height }) {
+    addSticker({
+      id: newStickerId(),
+      type: 'image',
+      uri,
+      width,
+      height,
+      x: canvasSize.width / 2 || 100,
+      y: canvasSize.height / 2 || 100,
+      authorId: userId,
+    });
+  }
+
+  function handleAddGif({ uri, width, height }) {
+    addSticker({
+      id: newStickerId(),
+      type: 'gif',
+      uri,
+      width,
+      height,
+      x: canvasSize.width / 2 || 100,
+      y: canvasSize.height / 2 || 100,
+      authorId: userId,
+    });
+  }
+
+  function handleStickerMove(id, x, y) {
+    const updated = serverStickersRef.current.map((s) => (s.id === id ? { ...s, x, y } : s));
+    serverStickersRef.current = updated;
+    onCanvasChangeRef.current?.(serverPathsRef.current, updated);
+  }
+
+  function handleStickerDelete(id) {
+    const updated = serverStickersRef.current.filter((s) => s.id !== id);
+    serverStickersRef.current = updated;
+    setSelectedStickerId(null);
+    onCanvasChangeRef.current?.(serverPathsRef.current, updated);
   }
 
   const currentD = currentRef.current.length > 1 ? pointsToD(currentRef.current) : null;
@@ -220,6 +295,18 @@ export default function DrawingCanvas({
             />
           )}
         </Svg>
+
+        {serverStickers.map((sticker) => (
+          <CanvasSticker
+            key={sticker.id}
+            sticker={sticker}
+            selected={sticker.id === selectedStickerId}
+            canvasSize={canvasSize}
+            onSelect={setSelectedStickerId}
+            onMove={handleStickerMove}
+            onDelete={handleStickerDelete}
+          />
+        ))}
 
         {Object.entries(cursors).map(([uid, c]) => {
           const hex = colorForUid(uid);
@@ -308,9 +395,23 @@ export default function DrawingCanvas({
               : <Text style={styles.actionBtnText}>Ryd egne</Text>
             }
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => setStickerSheetVisible(true)}
+          >
+            <Text style={styles.addBtnText}>+</Text>
+          </TouchableOpacity>
         </View>
 
       </View>
+
+      <StickerSheet
+        visible={stickerSheetVisible}
+        onAddEmoji={handleAddEmoji}
+        onAddImage={handleAddImage}
+        onAddGif={handleAddGif}
+        onClose={() => setStickerSheetVisible(false)}
+      />
     </View>
   );
 }
@@ -450,5 +551,19 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 14,
     fontWeight: '600',
+  },
+  addBtn: {
+    width: 44,
+    backgroundColor: '#a78bfa',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtnText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 22,
   },
 });
