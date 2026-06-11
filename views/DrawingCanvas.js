@@ -23,11 +23,9 @@ const COLORS = [
   { key: 'gray',   hex: '#94a3b8' },
 ];
 
-const SIZES = [
-  { key: 'thin',   width: 2,  dot: 6  },
-  { key: 'medium', width: 5,  dot: 10 },
-  { key: 'thick',  width: 14, dot: 18 },
-];
+const MIN_BRUSH_SIZE = 2;
+const MAX_BRUSH_SIZE = 30;
+const DEFAULT_BRUSH_SIZE = 4;
 
 const ERASER_COLOR = '#0a0a0f';
 const ERASER_WIDTH = 28;
@@ -57,12 +55,55 @@ function newStickerId() {
   return `stk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function BrushSizeSlider({ value, min, max, onChange }) {
+  const trackWidthRef = useRef(0);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+
+  const updateFromX = (x) => {
+    const width = trackWidthRef.current;
+    if (width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, x / width));
+    const next = Math.round(min + ratio * (max - min));
+    onChangeRef.current?.(next);
+  };
+
+  const pr = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: ({ nativeEvent: { locationX } }) => updateFromX(locationX),
+      onPanResponderMove: ({ nativeEvent: { locationX } }) => updateFromX(locationX),
+    })
+  ).current;
+
+  const ratio = max > min ? (value - min) / (max - min) : 0;
+  const thumbX = ratio * trackWidth;
+
+  return (
+    <View
+      style={styles.sliderTrackWrap}
+      {...pr.panHandlers}
+      onLayout={({ nativeEvent: { layout: { width } } }) => {
+        trackWidthRef.current = width;
+        setTrackWidth(width);
+      }}
+    >
+      <View style={styles.sliderTrack}>
+        <View style={[styles.sliderFill, { width: thumbX }]} />
+      </View>
+      <View style={[styles.sliderThumb, { left: thumbX - 10 }]} />
+    </View>
+  );
+}
+
 export default function DrawingCanvas({
   spaceName, serverPaths = [], serverStickers = [], userId, cursors = {}, onCanvasChange, onCursorMove,
 }) {
   const currentRef       = useRef([]);
   const colorRef         = useRef('#ffffff');
-  const strokeWidthRef   = useRef(5);
+  const strokeWidthRef   = useRef(DEFAULT_BRUSH_SIZE);
   const isEraserRef      = useRef(false);
   const serverPathsRef   = useRef(serverPaths);
   const serverStickersRef = useRef(serverStickers);
@@ -76,7 +117,7 @@ export default function DrawingCanvas({
   useEffect(() => { serverStickersRef.current = serverStickers; }, [serverStickers]);
 
   const [activeColor,  setActiveColor]  = useState('#ffffff');
-  const [activeSize,   setActiveSize]   = useState('medium');
+  const [brushSize,    setBrushSize]    = useState(DEFAULT_BRUSH_SIZE);
   const [isEraser,     setIsEraser]     = useState(false);
   const [canvasSize,   setCanvasSize]   = useState({ width: 0, height: 0 });
   const [tick,         setTick]         = useState(0);
@@ -155,10 +196,10 @@ export default function DrawingCanvas({
     setIsEraser(false);
   }
 
-  function handleSizeSelect(sizeKey) {
-    const s = SIZES.find((s) => s.key === sizeKey);
-    strokeWidthRef.current = s.width;
-    setActiveSize(sizeKey);
+  function handleBrushSizeChange(size) {
+    const clamped = Math.max(MIN_BRUSH_SIZE, Math.min(MAX_BRUSH_SIZE, size));
+    strokeWidthRef.current = clamped;
+    setBrushSize(clamped);
   }
 
   function handleEraserToggle() {
@@ -246,6 +287,15 @@ export default function DrawingCanvas({
     onCanvasChangeRef.current?.(serverPathsRef.current, updated);
   }
 
+  function handleStickerResize(id, width, height) {
+    const updated = serverStickersRef.current.map((s) => {
+      if (s.id !== id) return s;
+      return s.type === 'emoji' ? { ...s, size: width } : { ...s, width, height };
+    });
+    serverStickersRef.current = updated;
+    onCanvasChangeRef.current?.(serverPathsRef.current, updated);
+  }
+
   function handleStickerDelete(id) {
     const updated = serverStickersRef.current.filter((s) => s.id !== id);
     serverStickersRef.current = updated;
@@ -254,7 +304,7 @@ export default function DrawingCanvas({
   }
 
   const currentD = currentRef.current.length > 1 ? pointsToD(currentRef.current) : null;
-  const currentStrokeWidth = isEraser ? ERASER_WIDTH : (SIZES.find((s) => s.key === activeSize)?.width ?? 5);
+  const currentStrokeWidth = isEraser ? ERASER_WIDTH : brushSize;
   const currentStrokeColor = isEraser ? ERASER_COLOR : activeColor;
 
   return (
@@ -304,6 +354,7 @@ export default function DrawingCanvas({
             canvasSize={canvasSize}
             onSelect={setSelectedStickerId}
             onMove={handleStickerMove}
+            onResize={handleStickerResize}
             onDelete={handleStickerDelete}
           />
         ))}
@@ -345,24 +396,27 @@ export default function DrawingCanvas({
           ))}
         </ScrollView>
 
-        {/* Size + eraser row */}
+        {/* Brush size + eraser row */}
         <View style={styles.toolRow}>
-          <View style={styles.sizeRow}>
-            {SIZES.map(({ key, dot }) => (
-              <TouchableOpacity
-                key={key}
-                onPress={() => handleSizeSelect(key)}
-                style={[styles.sizeBtn, !isEraser && activeSize === key && styles.sizeBtnActive]}
-              >
-                <View style={[
-                  styles.sizeDot,
-                  { width: dot, height: dot, borderRadius: dot / 2 },
-                  !isEraser && activeSize === key
-                    ? { backgroundColor: activeColor }
-                    : { backgroundColor: '#666' },
-                ]} />
-              </TouchableOpacity>
-            ))}
+          <View style={styles.brushSizeRow}>
+            <Text style={styles.brushSizeLabel}>Pensel</Text>
+            <BrushSizeSlider
+              value={brushSize}
+              min={MIN_BRUSH_SIZE}
+              max={MAX_BRUSH_SIZE}
+              onChange={handleBrushSizeChange}
+            />
+            <View style={styles.brushPreviewWrap}>
+              <View style={[
+                styles.brushPreviewDot,
+                {
+                  width: brushSize,
+                  height: brushSize,
+                  borderRadius: brushSize / 2,
+                  backgroundColor: isEraser ? ERASER_COLOR : activeColor,
+                },
+              ]} />
+            </View>
           </View>
 
           <TouchableOpacity
@@ -487,27 +541,56 @@ const styles = StyleSheet.create({
   toolRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
   },
-  sizeRow: {
+  brushSizeRow: {
+    flex: 1,
     flexDirection: 'row',
-    gap: 6,
+    alignItems: 'center',
+    gap: 10,
   },
-  sizeBtn: {
-    width: 40,
-    height: 36,
+  brushSizeLabel: {
+    color: '#aaa',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sliderTrackWrap: {
+    flex: 1,
+    height: 32,
+    justifyContent: 'center',
+  },
+  sliderTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#1e1e2e',
+  },
+  sliderFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 2,
+    backgroundColor: '#a78bfa',
+  },
+  sliderThumb: {
+    position: 'absolute',
+    top: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#a78bfa',
+    borderWidth: 2,
+    borderColor: '#0a0a0f',
+  },
+  brushPreviewWrap: {
+    width: 32,
+    height: 32,
     borderRadius: 10,
     backgroundColor: '#1a1a2a',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
   },
-  sizeBtnActive: {
-    borderColor: '#a78bfa',
-    backgroundColor: 'rgba(167,139,250,0.12)',
-  },
-  sizeDot: {
+  brushPreviewDot: {
     backgroundColor: '#666',
   },
   eraserBtn: {

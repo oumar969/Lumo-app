@@ -3,11 +3,19 @@ import { View, Text, Image, TouchableOpacity, StyleSheet, PanResponder } from 'r
 
 export const EMOJI_BOX = 84;
 
+const MIN_DIM = 32;
+const MAX_DIM = 320;
+const RESIZE_SCALE = 1.15;
+
+function clamp(v, lo, hi) {
+  return Math.min(Math.max(v, lo), hi);
+}
+
 // A single placed sticker (emoji, image or GIF). Renders absolutely
 // positioned over the drawing surface and is draggable via its own
 // PanResponder — the responder system gives nested views first refusal on a
 // touch, so dragging a sticker never starts a new pen stroke underneath it.
-export default function CanvasSticker({ sticker, selected, canvasSize, onSelect, onMove, onDelete }) {
+export default function CanvasSticker({ sticker, selected, canvasSize, onSelect, onMove, onResize, onDelete }) {
   const posRef       = useRef({ x: sticker.x, y: sticker.y });
   const startRef     = useRef({ x: sticker.x, y: sticker.y });
   const canvasSizeRef = useRef(canvasSize);
@@ -15,8 +23,10 @@ export default function CanvasSticker({ sticker, selected, canvasSize, onSelect,
 
   const onSelectRef = useRef(onSelect);
   const onMoveRef   = useRef(onMove);
+  const onResizeRef = useRef(onResize);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
   useEffect(() => { onMoveRef.current   = onMove;   }, [onMove]);
+  useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
   useEffect(() => { canvasSizeRef.current = canvasSize; }, [canvasSize]);
 
   // Pick up external position changes (e.g. a remote move) once we're not
@@ -60,8 +70,20 @@ export default function CanvasSticker({ sticker, selected, canvasSize, onSelect,
   ).current;
 
   const { x, y } = posRef.current;
-  const width  = sticker.type === 'emoji' ? EMOJI_BOX : (sticker.width  || 120);
-  const height = sticker.type === 'emoji' ? EMOJI_BOX : (sticker.height || 120);
+  const width  = sticker.type === 'emoji' ? (sticker.size || EMOJI_BOX) : (sticker.width  || 120);
+  const height = sticker.type === 'emoji' ? (sticker.size || EMOJI_BOX) : (sticker.height || 120);
+  const emojiFontSize = Math.round(width * (56 / EMOJI_BOX));
+
+  function handleResize(scale) {
+    if (sticker.type === 'emoji') {
+      const next = clamp(Math.round(width * scale), MIN_DIM, MAX_DIM);
+      onResizeRef.current?.(sticker.id, next, next);
+    } else {
+      const newWidth  = clamp(Math.round(width  * scale), MIN_DIM, MAX_DIM);
+      const newHeight = clamp(Math.round(height * scale), MIN_DIM, MAX_DIM);
+      onResizeRef.current?.(sticker.id, newWidth, newHeight);
+    }
+  }
 
   return (
     <View
@@ -77,19 +99,37 @@ export default function CanvasSticker({ sticker, selected, canvasSize, onSelect,
       ]}
     >
       {sticker.type === 'emoji' ? (
-        <Text style={styles.emoji}>{sticker.emoji}</Text>
+        <Text style={[styles.emoji, { fontSize: emojiFontSize }]}>{sticker.emoji}</Text>
       ) : (
         <Image source={{ uri: sticker.uri }} style={styles.image} resizeMode="contain" />
       )}
 
       {selected && (
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => onDelete(sticker.id)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.deleteText}>✕</Text>
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={() => onDelete(sticker.id)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.deleteText}>✕</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.resizeBtn, styles.resizeBtnSmaller]}
+            onPress={() => handleResize(1 / RESIZE_SCALE)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.resizeText}>−</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.resizeBtn, styles.resizeBtnBigger]}
+            onPress={() => handleResize(RESIZE_SCALE)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.resizeText}>+</Text>
+          </TouchableOpacity>
+        </>
       )}
     </View>
   );
@@ -134,5 +174,29 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '800',
+  },
+  resizeBtn: {
+    position: 'absolute',
+    bottom: -12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#a78bfa',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#0a0a0f',
+  },
+  resizeBtnSmaller: {
+    left: -12,
+  },
+  resizeBtnBigger: {
+    right: -12,
+  },
+  resizeText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+    lineHeight: 18,
   },
 });
