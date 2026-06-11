@@ -29,6 +29,14 @@ export default function CanvasSticker({ sticker, selected, canvasSize, onSelect,
   const pr = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      // Without this, the canvas's drawing PanResponder can steal the
+      // gesture mid-drag once the pointer leaves the sticker's original
+      // bounds — turning the rest of the drag into a pen stroke.
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
         startRef.current = { ...posRef.current };
         onSelectRef.current?.(sticker.id);
@@ -43,6 +51,9 @@ export default function CanvasSticker({ sticker, selected, canvasSize, onSelect,
         bump();
       },
       onPanResponderRelease: () => {
+        onMoveRef.current?.(sticker.id, posRef.current.x, posRef.current.y);
+      },
+      onPanResponderTerminate: () => {
         onMoveRef.current?.(sticker.id, posRef.current.x, posRef.current.y);
       },
     })
