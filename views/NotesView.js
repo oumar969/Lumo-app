@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSpaces } from '../context/SpaceContext';
 import { useAuth } from '../context/AuthContext';
 import { NoteService } from '../services/NoteService';
+import { LiveNotesService } from '../services/LiveNotesService';
 
 function timeAgo(ts) {
   const diff = Math.floor(Date.now() / 1000) - ts;
@@ -101,6 +102,12 @@ export default function NotesView() {
   const [editNote, setEditNote] = useState(null);  // null = closed, {} = new, note obj = edit
   const [modalVisible, setModalVisible] = useState(false);
 
+  // A random per-mount id — NOT the account's uid. Two devices signed into
+  // the same account are still two separate live-sync participants, so we
+  // can't use uid alone to tell "my own broadcast" apart from "someone
+  // else's": that would make each device deafen itself to the other.
+  const sessionIdRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+
   const fetchNotes = useCallback(async () => {
     if (!activeSpace) return;
     setLoading(true);
@@ -116,6 +123,20 @@ export default function NotesView() {
   }, [activeSpace?.id, getToken]);
 
   useFocusEffect(useCallback(() => { fetchNotes(); }, [fetchNotes]));
+
+  // Subscribe to live notes updates for this space — refresh the list
+  // instantly when any member creates, edits or deletes a note.
+  useEffect(() => {
+    if (!activeSpace) return;
+
+    const sessionId = sessionIdRef.current;
+    const unsubscribe = LiveNotesService.subscribeUpdates(activeSpace.id, ({ updatedBy }) => {
+      if (updatedBy === sessionId) return; // our own change — already applied locally
+      fetchNotes();
+    });
+
+    return unsubscribe;
+  }, [activeSpace?.id, fetchNotes]);
 
   function openNew() {
     setEditNote({});
@@ -148,6 +169,7 @@ export default function NotesView() {
           )
         );
       }
+      LiveNotesService.pushUpdate(activeSpace.id, sessionIdRef.current).catch(() => {});
       closeModal();
     } catch {
       // keep modal open so user can retry
@@ -162,6 +184,7 @@ export default function NotesView() {
       const token = await getToken();
       await NoteService.deleteNote(noteId, token);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      LiveNotesService.pushUpdate(activeSpace.id, sessionIdRef.current).catch(() => {});
       closeModal();
     } catch {
       // silent
