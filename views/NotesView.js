@@ -108,17 +108,27 @@ export default function NotesView() {
   // else's": that would make each device deafen itself to the other.
   const sessionIdRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
 
+  // Bumped whenever a fetch is (re)issued or a local create/update/delete
+  // happens. A fetch only applies its result if this counter hasn't moved
+  // since it started — otherwise an older, slower request (or one issued
+  // before a local optimistic change) can resolve late and overwrite newer
+  // state with stale data, making deleted notes "come back" and freshly
+  // created notes "disappear".
+  const fetchSeqRef = useRef(0);
+
   const fetchNotes = useCallback(async () => {
     if (!activeSpace) return;
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     try {
       const token = await getToken();
       const data = await NoteService.getNotes(activeSpace.id, token);
+      if (seq !== fetchSeqRef.current) return; // superseded by a newer fetch or local change
       setNotes(data);
     } catch {
       // silent
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   }, [activeSpace?.id, getToken]);
 
@@ -159,9 +169,11 @@ export default function NotesView() {
       const token = await getToken();
       if (!editNote?.id) {
         const created = await NoteService.createNote(activeSpace.id, content, token);
+        fetchSeqRef.current++; // discard any in-flight fetch started before this
         setNotes((prev) => [created, ...prev]);
       } else {
         await NoteService.updateNote(editNote.id, content, token);
+        fetchSeqRef.current++;
         setNotes((prev) =>
           prev.map((n) => n.id === editNote.id
             ? { ...n, content, updated_at: Math.floor(Date.now() / 1000) }
@@ -183,6 +195,7 @@ export default function NotesView() {
     try {
       const token = await getToken();
       await NoteService.deleteNote(noteId, token);
+      fetchSeqRef.current++; // discard any in-flight fetch started before this
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
       LiveNotesService.pushUpdate(activeSpace.id, sessionIdRef.current).catch(() => {});
       closeModal();
